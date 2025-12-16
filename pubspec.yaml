@@ -1,0 +1,63 @@
+name: smart_flower_pot
+description: "NK星云 - 通用物联网设备控制平台"
+publish_to: 'none'
+version: 2.0.0+1
+
+environment:
+  sdk: ^3.10.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # 网络通信
+  web_socket_channel: ^3.0.1
+
+  # 状态管理
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # 本地存储
+  shared_preferences: ^2.3.3
+
+  # 图表
+  fl_chart: ^0.69.2
+
+  # 工具
+  uuid: ^4.5.1
+  intl: ^0.19.0
+
+  # UI增强
+  flutter_animate: ^4.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  riverpod_generator: ^2.6.2
+  build_runner: ^2.4.13
+  flutter_launcher_icons: ^0.14.2
+
+# 图标生成配置
+flutter_launcher_icons:
+  android: true
+  ios: true
+  web:
+    generate: true
+    image_path: "icon.png"
+    background_color: "#ffffff"
+    theme_color: "#0175C2"
+  windows:
+    generate: true
+    image_path: "icon.png"
+    icon_size: 256
+  image_path: "icon.png"
+  adaptive_icon_background: "#ffffff"
+  adaptive_icon_foreground: "icon.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - icon.png
