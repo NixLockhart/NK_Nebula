@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/theme/app_theme.dart';
+import 'core/widgets/animated_widgets.dart';
 import 'data/providers/providers.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'features/home/screens/home_screen.dart';
@@ -27,20 +29,8 @@ class SmartFlowerPotApp extends ConsumerWidget {
     return MaterialApp(
       title: 'NK星云',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.green,
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.green,
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
       home: const AuthWrapper(),
     );
   }
@@ -58,9 +48,18 @@ class AuthWrapper extends ConsumerWidget {
 
     // 初始化中
     if (status == AuthStatus.initial) {
-      return const Scaffold(
+      return Scaffold(
         body: Center(
-          child: CircularProgressIndicator(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PulseWidget(
+                child: Image.asset('icon.png', width: 64, height: 64),
+              ),
+              const SizedBox(height: 16),
+              const CircularProgressIndicator(strokeWidth: 2),
+            ],
+          ),
         ),
       );
     }

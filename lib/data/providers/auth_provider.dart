@@ -114,6 +114,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (response.isSuccess) {
         // 服务器返回格式: payload.data.{user_id, token, expires_at}
         final data = response.payload['data'] as Map<String, dynamic>? ?? {};
+        // 确保 username 被正确设置（服务器可能不返回 username）
+        if (!data.containsKey('username') || (data['username'] as String?)?.isEmpty == true) {
+          data['username'] = username;
+        }
         final user = User.fromJson(data);
         await _saveAuth(user);
         state = AuthState(status: AuthStatus.authenticated, user: user);
@@ -147,6 +151,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (response.isSuccess) {
         // 服务器返回格式: payload.data.{user_id, token, expires_at}
         final data = response.payload['data'] as Map<String, dynamic>? ?? {};
+        // 确保 username 被正确设置（服务器可能不返回 username）
+        if (!data.containsKey('username') || (data['username'] as String?)?.isEmpty == true) {
+          data['username'] = username;
+        }
         final user = User.fromJson(data);
         await _saveAuth(user);
         state = AuthState(status: AuthStatus.authenticated, user: user);

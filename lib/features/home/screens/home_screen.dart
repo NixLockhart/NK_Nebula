@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/animated_widgets.dart';
 import '../../../data/providers/providers.dart';
 import '../../../data/models/models.dart';
 
@@ -12,12 +15,20 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with TickerProviderStateMixin {
   int _currentIndex = 0;
+  late PageController _pageController;
+  late AnimationController _fabController;
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController();
+    _fabController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
     // 加载设备列表
     Future.microtask(() {
       ref.read(devicesProvider.notifier).loadDevices();
@@ -25,192 +36,418 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final devicesState = ref.watch(devicesProvider);
-    final selectedDevice = ref.watch(selectedDeviceProvider);
+  void dispose() {
+    _pageController.dispose();
+    _fabController.dispose();
+    super.dispose();
+  }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.local_florist),
-            const SizedBox(width: 8),
-            Text(selectedDevice?.name ?? '我的设备'),
-            const SizedBox(width: 4),
-            SizedBox(
-              width: 32,
-              height: 32,
-              child: IconButton(
-                icon: const Icon(Icons.refresh, size: 18),
-                padding: EdgeInsets.zero,
-                tooltip: '刷新设备',
-                onPressed: () {
-                  ref.read(devicesProvider.notifier).loadDevices();
-                  final deviceId = selectedDevice?.deviceId;
-                  if (deviceId != null) {
-                    ref.read(deviceConfigProvider.notifier).loadConfig(deviceId);
-                  }
-                },
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          // 设备选择
-          if (devicesState.devices.length > 1)
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.devices),
-              onSelected: (deviceId) {
-                ref.read(selectedDeviceIdProvider.notifier).state = deviceId;
-                _loadDeviceData(deviceId);
-              },
-              itemBuilder: (context) {
-                return devicesState.devices.map((device) {
-                  return PopupMenuItem(
-                    value: device.deviceId,
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.circle,
-                          size: 12,
-                          color: device.isOnline ? Colors.green : Colors.grey,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(device.name),
-                      ],
-                    ),
-                  );
-                }).toList();
-              },
-            ),
-          // 设置
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () => _showSettingsDialog(context),
-          ),
-        ],
-      ),
-      body: _buildBody(),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() => _currentIndex = index);
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
-            selectedIcon: Icon(Icons.dashboard),
-            label: '仪表盘',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.toggle_off_outlined),
-            selectedIcon: Icon(Icons.toggle_on),
-            label: '控制',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.history_outlined),
-            selectedIcon: Icon(Icons.history),
-            label: '历史',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.tune_outlined),
-            selectedIcon: Icon(Icons.tune),
-            label: '配置',
-          ),
-        ],
-      ),
+  void _onPageChanged(int index) {
+    setState(() => _currentIndex = index);
+  }
+
+  void _onNavTapped(int index) {
+    _pageController.animateToPage(
+      index,
+      duration: AppTheme.animationNormal,
+      curve: Curves.easeOutCubic,
     );
   }
 
-  Widget _buildBody() {
+  @override
+  Widget build(BuildContext context) {
+    final devicesState = ref.watch(devicesProvider);
     final selectedDevice = ref.watch(selectedDeviceProvider);
+    final colorScheme = Theme.of(context).colorScheme;
 
-    if (selectedDevice == null || selectedDevice.deviceId.isEmpty) {
+    return Scaffold(
+      appBar: _buildAppBar(selectedDevice, devicesState, colorScheme),
+      body: PageView(
+        controller: _pageController,
+        onPageChanged: _onPageChanged,
+        children: [
+          _buildPageContent(0, selectedDevice),
+          _buildPageContent(1, selectedDevice),
+          _buildPageContent(2, selectedDevice),
+          _buildPageContent(3, selectedDevice),
+        ],
+      ),
+      bottomNavigationBar: _buildBottomNav(colorScheme),
+    );
+  }
+
+  Widget _buildPageContent(int index, Device? device) {
+    if (device == null || device.deviceId.isEmpty) {
       return _buildNoDeviceView();
     }
 
-    switch (_currentIndex) {
+    switch (index) {
       case 0:
-        return DashboardView(deviceId: selectedDevice.deviceId);
+        return DashboardView(deviceId: device.deviceId);
       case 1:
-        return ControlView(deviceId: selectedDevice.deviceId);
+        return ControlView(deviceId: device.deviceId);
       case 2:
-        return HistoryView(deviceId: selectedDevice.deviceId);
+        return HistoryView(deviceId: device.deviceId);
       case 3:
-        return ConfigView(deviceId: selectedDevice.deviceId);
+        return ConfigView(deviceId: device.deviceId);
       default:
         return const SizedBox();
     }
   }
 
-  Widget _buildNoDeviceView() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.devices_other, size: 80, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text(
-            '暂无设备',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey[600],
+  PreferredSizeWidget _buildAppBar(
+      Device? selectedDevice,
+      DevicesState devicesState,
+      ColorScheme colorScheme,
+      ) {
+    final hasMultipleDevices = devicesState.devices.length > 1;
+
+    return AppBar(
+      title: _buildDeviceSelector(
+        selectedDevice,
+        devicesState,
+        colorScheme,
+        hasMultipleDevices,
+      ),
+      actions: [
+        // 刷新按钮
+        IconButton(
+          icon: const Icon(Icons.refresh_rounded),
+          tooltip: '刷新',
+          onPressed: () {
+            ref.read(devicesProvider.notifier).loadDevices();
+            final deviceId = selectedDevice?.deviceId;
+            if (deviceId != null) {
+              ref.read(deviceConfigProvider.notifier).loadConfig(deviceId);
+            }
+          },
+        ),
+        // 设置
+        IconButton(
+          icon: const Icon(Icons.more_vert_rounded),
+          tooltip: '设置',
+          onPressed: () => _showSettingsSheet(context),
+        ),
+        const SizedBox(width: 4),
+      ],
+    );
+  }
+
+  /// 构建设备选择器（左上角）
+  Widget _buildDeviceSelector(
+      Device? selectedDevice,
+      DevicesState devicesState,
+      ColorScheme colorScheme,
+      bool hasMultipleDevices,
+      ) {
+    final deviceInfoWidget = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Image.asset('icon.png', width: 28, height: 28),
+        ),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      selectedDevice?.name ?? '我的设备',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (hasMultipleDevices) ...[
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: 20,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ],
+                ],
+              ),
+              if (selectedDevice != null)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    StatusIndicator(
+                      isActive: selectedDevice.isOnline,
+                      size: 8,
+                      animate: true,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      selectedDevice.isOnline ? '在线' : '离线',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    if (hasMultipleDevices) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '${devicesState.devices.length}台设备',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: colorScheme.primary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    // 如果只有一个设备，直接显示设备信息
+    if (!hasMultipleDevices) {
+      return deviceInfoWidget;
+    }
+
+    // 多个设备时，点击显示下拉菜单
+    return PopupMenuButton<String>(
+      offset: const Offset(0, 50),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+      ),
+      onSelected: (deviceId) {
+        ref.read(selectedDeviceIdProvider.notifier).state = deviceId;
+        ref.read(deviceConfigProvider.notifier).loadConfig(deviceId);
+      },
+      itemBuilder: (context) {
+        return devicesState.devices.map((device) {
+          final isSelected = device.deviceId == selectedDevice?.deviceId;
+          return PopupMenuItem<String>(
+            value: device.deviceId,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? colorScheme.primaryContainer
+                          : colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.memory_rounded,
+                      size: 18,
+                      color: isSelected
+                          ? colorScheme.primary
+                          : colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          device.name,
+                          style: TextStyle(
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                            color: isSelected
+                                ? colorScheme.primary
+                                : colorScheme.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            StatusIndicator(
+                              isActive: device.isOnline,
+                              size: 6,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              device.isOnline ? '在线' : '离线',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              device.deviceId,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: colorScheme.onSurfaceVariant.withOpacity(0.7),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isSelected)
+                    Icon(Icons.check_rounded, color: colorScheme.primary, size: 20),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '请在开发板上配置并绑定设备',
-            style: TextStyle(color: Colors.grey[500]),
-          ),
-          const SizedBox(height: 24),
-          FilledButton.tonal(
-            onPressed: () {
-              ref.read(devicesProvider.notifier).loadDevices();
-            },
-            child: const Text('刷新'),
+          );
+        }).toList();
+      },
+      child: deviceInfoWidget,
+    );
+  }
+
+  Widget _buildBottomNav(ColorScheme colorScheme) {
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
           ),
         ],
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildNavItem(0, Icons.dashboard_outlined, Icons.dashboard_rounded, '仪表盘'),
+              _buildNavItem(1, Icons.toggle_off_outlined, Icons.toggle_on_rounded, '控制'),
+              _buildNavItem(2, Icons.show_chart_outlined, Icons.show_chart_rounded, '历史'),
+              _buildNavItem(3, Icons.tune_outlined, Icons.tune_rounded, '配置'),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  void _loadDeviceData(String deviceId) {
-    ref.read(deviceConfigProvider.notifier).loadConfig(deviceId);
+  Widget _buildNavItem(int index, IconData icon, IconData activeIcon, String label) {
+    final isSelected = _currentIndex == index;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return GestureDetector(
+      onTap: () => _onNavTapped(index),
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: AppTheme.animationFast,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? colorScheme.primaryContainer : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedSwitcher(
+              duration: AppTheme.animationFast,
+              child: Icon(
+                isSelected ? activeIcon : icon,
+                key: ValueKey(isSelected),
+                color: isSelected ? colorScheme.primary : colorScheme.onSurfaceVariant,
+                size: isSelected ? 26 : 24,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                color: isSelected ? colorScheme.primary : colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
-  void _showSettingsDialog(BuildContext context) {
+  Widget _buildNoDeviceView() {
+    return EmptyStateWidget(
+      icon: Icons.devices_other_rounded,
+      title: '暂无设备',
+      subtitle: '请在设备端配置并绑定设备',
+      action: FilledButton.tonal(
+        onPressed: () {
+          ref.read(devicesProvider.notifier).loadDevices();
+        },
+        child: const Text('刷新'),
+      ),
+    );
+  }
+
+  void _showSettingsSheet(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final username = ref.read(currentUserProvider)?.username ?? '未知用户';
+
     showModalBottomSheet(
       context: context,
       builder: (context) {
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.person),
-                title: Text(ref.read(currentUserProvider)?.username ?? ''),
-                subtitle: const Text('当前账号'),
-              ),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.refresh),
-                title: const Text('刷新设备'),
-                onTap: () {
-                  Navigator.pop(context);
-                  ref.read(devicesProvider.notifier).loadDevices();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.logout, color: Colors.red),
-                title: const Text('退出登录', style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  Navigator.pop(context);
-                  ref.read(authProvider.notifier).logout();
-                },
-              ),
-              const SizedBox(height: 16),
-            ],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: colorScheme.primaryContainer,
+                    child: Icon(Icons.person, color: colorScheme.primary),
+                  ),
+                  title: Text(username),
+                  subtitle: const Text('当前账号'),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(Icons.refresh_rounded, color: colorScheme.primary),
+                  title: const Text('刷新设备'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    ref.read(devicesProvider.notifier).loadDevices();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.logout_rounded, color: AppColors.error),
+                  title: const Text('退出登录', style: TextStyle(color: AppColors.error)),
+                  onTap: () {
+                    Navigator.pop(context);
+                    ref.read(authProvider.notifier).logout();
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         );
       },
@@ -232,7 +469,6 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
   @override
   void initState() {
     super.initState();
-    // 使用 Future.microtask 延迟执行，避免在 widget 生命周期内修改 provider
     Future.microtask(() => _loadConfig());
   }
 
@@ -240,7 +476,6 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
   void didUpdateWidget(DashboardView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.deviceId != widget.deviceId) {
-      // 同样延迟执行
       Future.microtask(() => _loadConfig());
     }
   }
@@ -268,16 +503,19 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
         padding: const EdgeInsets.all(16),
         children: [
           // 设备状态卡片
-          _buildStatusCard(device),
-          const SizedBox(height: 16),
+          FadeInWidget(
+            child: _StatusCard(device: device, realtimeData: realtimeData),
+          ),
+          const SizedBox(height: 20),
 
           // 传感器网格
           if (sensors.isNotEmpty) ...[
-            Text(
-              '环境监测',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+            FadeInWidget(
+              delay: const Duration(milliseconds: 100),
+              child: _SectionHeader(
+                title: '环境监测',
+                icon: Icons.sensors_rounded,
+              ),
             ),
             const SizedBox(height: 12),
             GridView.builder(
@@ -285,7 +523,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
-                childAspectRatio: 1.5,
+                childAspectRatio: 1.3,
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
               ),
@@ -293,89 +531,134 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
               itemBuilder: (context, index) {
                 final sensor = sensors[index];
                 final value = realtimeData.sensorData?[sensor.fieldKey];
-                return _SensorCard(sensor: sensor, value: value);
+                return FadeInWidget(
+                  delay: Duration(milliseconds: 150 + index * 50),
+                  child: _SensorCard(sensor: sensor, value: value),
+                );
               },
             ),
           ] else
-            _buildEmptyConfigCard(),
+            FadeInWidget(
+              child: EmptyStateWidget(
+                icon: Icons.sensors_rounded,
+                title: '暂无传感器配置',
+                subtitle: '前往配置页面添加传感器',
+              ),
+            ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildStatusCard(Device? device) {
+/// 状态卡片
+class _StatusCard extends StatelessWidget {
+  final Device? device;
+  final RealtimeDataState realtimeData;
+
+  const _StatusCard({this.device, required this.realtimeData});
+
+  @override
+  Widget build(BuildContext context) {
     final isOnline = device?.isOnline ?? false;
-    final realtimeData = ref.watch(realtimeDataProvider);
     final status = realtimeData.status;
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isOnline
-                    ? Colors.green.withValues(alpha: 0.1)
-                    : Colors.grey.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                isOnline ? Icons.wifi : Icons.wifi_off,
-                color: isOnline ? Colors.green : Colors.grey,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    isOnline ? '设备在线' : '设备离线',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    status != null
-                        ? (status.isAutoMode ? '自动模式' : '手动模式')
-                        : '等待数据...',
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-            ),
-            if (realtimeData.lastUpdate != null)
-              Text(
-                _formatTime(realtimeData.lastUpdate!),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[500],
-                ),
-              ),
-          ],
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: isOnline
+            ? LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDark
+              ? [AppColors.primary.withOpacity(0.3), AppColors.primaryDark.withOpacity(0.2)]
+              : [AppColors.primaryPale.withOpacity(0.5), AppColors.primarySoft.withOpacity(0.3)],
+        )
+            : null,
+        color: isOnline ? null : colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        border: Border.all(
+          color: isOnline
+              ? AppColors.primary.withOpacity(0.3)
+              : colorScheme.outline.withOpacity(0.3),
         ),
       ),
-    );
-  }
-
-  Widget _buildEmptyConfigCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          children: [
-            Icon(Icons.settings_suggest, size: 48, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              '暂无传感器配置',
-              style: TextStyle(color: Colors.grey[600]),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isOnline
+                  ? AppColors.primary.withOpacity(isDark ? 0.3 : 0.15)
+                  : colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(14),
             ),
-          ],
-        ),
+            child: Icon(
+              isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+              color: isOnline ? AppColors.primary : colorScheme.onSurfaceVariant,
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isOnline ? '设备在线' : '设备离线',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 17,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: (status?.isAutoMode ?? true)
+                            ? AppColors.info.withOpacity(0.15)
+                            : AppColors.warning.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        status != null
+                            ? (status.isAutoMode ? '自动模式' : '手动模式')
+                            : '等待数据...',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: status != null
+                              ? (status.isAutoMode ? AppColors.info : AppColors.warning)
+                              : colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (realtimeData.lastUpdate != null)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Icon(Icons.schedule_rounded, size: 14, color: colorScheme.onSurfaceVariant),
+                const SizedBox(height: 2),
+                Text(
+                  _formatTime(realtimeData.lastUpdate!),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }
@@ -394,6 +677,42 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
   }
 }
 
+/// 分区标题
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Widget? trailing;
+
+  const _SectionHeader({
+    required this.title,
+    required this.icon,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: colorScheme.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: colorScheme.onSurface,
+            ),
+          ),
+        ),
+        if (trailing != null) trailing!,
+      ],
+    );
+  }
+}
+
 /// 传感器卡片
 class _SensorCard extends StatelessWidget {
   final SensorConfig sensor;
@@ -405,24 +724,50 @@ class _SensorCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final displayValue = value?.toString() ?? '--';
     final iconData = _getIconData(sensor.icon);
-    final color = _getColor(sensor.fieldKey);
+    final color = AppColors.getSensorColor(sensor.fieldKey);
+    final lightColor = AppColors.getSensorLightColor(sensor.fieldKey);
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Card(
-      child: Padding(
+    return ScaleOnTap(
+      child: Container(
         padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+          border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
               children: [
-                Icon(iconData, size: 20, color: color),
-                const SizedBox(width: 8),
-                Text(
-                  sensor.fieldName,
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 13,
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: isDark ? color.withOpacity(0.2) : lightColor,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(iconData, size: 18, color: color),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    sensor.fieldName,
+                    style: TextStyle(
+                      color: colorScheme.onSurfaceVariant,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -430,14 +775,26 @@ class _SensorCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(
-                  displayValue,
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: color,
+                if (value != null)
+                  AnimatedNumber(
+                    value: value is num ? value : 0,
+                    style: TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                      height: 1,
+                    ),
+                  )
+                else
+                  Text(
+                    displayValue,
+                    style: TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onSurfaceVariant,
+                      height: 1,
+                    ),
                   ),
-                ),
                 if (sensor.unit.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(left: 4, bottom: 4),
@@ -445,7 +802,8 @@ class _SensorCard extends StatelessWidget {
                       sensor.unit,
                       style: TextStyle(
                         fontSize: 14,
-                        color: Colors.grey[600],
+                        color: colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ),
@@ -461,33 +819,18 @@ class _SensorCard extends StatelessWidget {
     switch (icon.toLowerCase()) {
       case 'thermostat':
       case 'temp':
-        return Icons.thermostat;
+        return Icons.thermostat_rounded;
       case 'water_drop':
       case 'humi':
-        return Icons.water_drop;
+        return Icons.water_drop_rounded;
       case 'grass':
       case 'soil':
-        return Icons.grass;
+        return Icons.grass_rounded;
       case 'light_mode':
       case 'light':
-        return Icons.light_mode;
+        return Icons.light_mode_rounded;
       default:
-        return Icons.sensors;
-    }
-  }
-
-  Color _getColor(String key) {
-    switch (key.toLowerCase()) {
-      case 'temp':
-        return Colors.orange;
-      case 'humi':
-        return Colors.blue;
-      case 'soil':
-        return Colors.brown;
-      case 'light':
-        return Colors.amber;
-      default:
-        return Colors.teal;
+        return Icons.sensors_rounded;
     }
   }
 }
@@ -512,49 +855,63 @@ class ControlView extends ConsumerWidget {
       padding: const EdgeInsets.all(16),
       children: [
         // 模式切换
-        _ModeSwitch(status: status, deviceId: deviceId),
+        FadeInWidget(
+          child: _ModeSwitch(status: status, deviceId: deviceId),
+        ),
         const SizedBox(height: 24),
 
         // 开关控制
         if (controls.isNotEmpty) ...[
-          Text(
-            '设备控制',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+          FadeInWidget(
+            delay: const Duration(milliseconds: 100),
+            child: _SectionHeader(title: '设备控制', icon: Icons.toggle_on_rounded),
           ),
           const SizedBox(height: 12),
-          ...controls.map((control) {
+          ...controls.asMap().entries.map((entry) {
+            final index = entry.key;
+            final control = entry.value;
             final isOn = status?.isOn(control.controlKey) ?? false;
             final enabled = status?.isManualMode ?? false;
-            return _ControlTile(
-              control: control,
-              isOn: isOn,
-              enabled: enabled,
-              deviceId: deviceId,
+            return FadeInWidget(
+              delay: Duration(milliseconds: 150 + index * 50),
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _ControlTile(
+                  control: control,
+                  isOn: isOn,
+                  enabled: enabled,
+                  deviceId: deviceId,
+                ),
+              ),
             );
           }),
         ],
 
-        const SizedBox(height: 24),
-
-        // 功能操作
         if (actions.isNotEmpty) ...[
-          Text(
-            '功能操作',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+          const SizedBox(height: 16),
+          FadeInWidget(
+            delay: const Duration(milliseconds: 200),
+            child: _SectionHeader(title: '功能操作', icon: Icons.touch_app_rounded),
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: actions.map((action) {
-              return _ActionButton(action: action, deviceId: deviceId);
-            }).toList(),
+          FadeInWidget(
+            delay: const Duration(milliseconds: 250),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: actions.map((action) {
+                return _ActionButton(action: action, deviceId: deviceId);
+              }).toList(),
+            ),
           ),
         ],
+
+        if (controls.isEmpty && actions.isEmpty)
+          EmptyStateWidget(
+            icon: Icons.toggle_off_rounded,
+            title: '暂无控制配置',
+            subtitle: '前往配置页面添加控制项',
+          ),
       ],
     );
   }
@@ -570,59 +927,79 @@ class _ModeSwitch extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isAutoMode = status?.isAutoMode ?? true;
+    final colorScheme = Theme.of(context).colorScheme;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.auto_mode),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '运行模式',
-                        style: TextStyle(fontWeight: FontWeight.bold),
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.auto_mode_rounded, color: colorScheme.primary),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '运行模式',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isAutoMode ? '系统自动控制设备' : '需要手动控制设备',
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 13,
                       ),
-                      Text(
-                        isAutoMode ? '自动控制' : '手动控制',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(
+                  value: true,
+                  icon: Icon(Icons.auto_awesome_rounded, size: 18),
+                  label: Text('自动'),
+                ),
+                ButtonSegment(
+                  value: false,
+                  icon: Icon(Icons.pan_tool_rounded, size: 18),
+                  label: Text('手动'),
                 ),
               ],
+              selected: {isAutoMode},
+              onSelectionChanged: (selected) async {
+                final newMode = selected.first;
+                final success = await sendModeCommand(ref, deviceId, newMode);
+                if (!success && context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('模式切换失败')),
+                  );
+                }
+              },
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(value: true, label: Text('自动')),
-                  ButtonSegment(value: false, label: Text('手动')),
-                ],
-                selected: {isAutoMode},
-                onSelectionChanged: (selected) async {
-                  final newMode = selected.first;
-                  final success = await sendModeCommand(ref, deviceId, newMode);
-                  if (!success && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('模式切换失败')),
-                    );
-                  }
-                },
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -644,30 +1021,59 @@ class _ControlTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Card(
-      child: ListTile(
-        leading: Icon(
-          _getIconData(control.icon),
-          color: isOn ? Theme.of(context).colorScheme.primary : Colors.grey,
+    final colorScheme = Theme.of(context).colorScheme;
+    final color = isOn ? colorScheme.primary : colorScheme.onSurfaceVariant;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        border: Border.all(
+          color: isOn
+              ? colorScheme.primary.withOpacity(0.3)
+              : colorScheme.outline.withOpacity(0.2),
         ),
-        title: Text(control.controlName),
-        subtitle: Text(isOn ? '已开启' : '已关闭'),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        leading: AnimatedContainer(
+          duration: AppTheme.animationFast,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: isOn
+                ? colorScheme.primary.withOpacity(0.15)
+                : colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(_getIconData(control.icon), color: color, size: 22),
+        ),
+        title: Text(
+          control.controlName,
+          style: const TextStyle(fontWeight: FontWeight.w500),
+        ),
+        subtitle: Text(
+          isOn ? '已开启' : '已关闭',
+          style: TextStyle(
+            color: isOn ? colorScheme.primary : colorScheme.onSurfaceVariant,
+            fontSize: 12,
+          ),
+        ),
         trailing: Switch(
           value: isOn,
           onChanged: enabled
               ? (value) async {
-                  final success = await sendControlCommand(
-                    ref,
-                    deviceId,
-                    control.controlKey,
-                    value,
-                  );
-                  if (!success && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('命令发送失败')),
-                    );
-                  }
-                }
+            final success = await sendControlCommand(
+              ref,
+              deviceId,
+              control.controlKey,
+              value,
+            );
+            if (!success && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('命令发送失败')),
+              );
+            }
+          }
               : null,
         ),
       ),
@@ -678,18 +1084,18 @@ class _ControlTile extends ConsumerWidget {
     switch (icon.toLowerCase()) {
       case 'water':
       case 'water_drop':
-        return Icons.water_drop;
+        return Icons.water_drop_rounded;
       case 'fan':
       case 'air':
-        return Icons.air;
+        return Icons.air_rounded;
       case 'light':
       case 'lightbulb':
-        return Icons.lightbulb;
+        return Icons.lightbulb_rounded;
       case 'heat':
       case 'whatshot':
-        return Icons.whatshot;
+        return Icons.whatshot_rounded;
       default:
-        return Icons.power_settings_new;
+        return Icons.power_settings_new_rounded;
     }
   }
 }
@@ -703,24 +1109,33 @@ class _ActionButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return FilledButton.tonal(
-      onPressed: () async {
-        final success = await sendActionCommand(
-          ref,
-          deviceId,
-          action.actionKey,
-        );
-        if (!success && context.mounted) {
+    return ScaleOnTap(
+      onTap: () async {
+        final success = await sendActionCommand(ref, deviceId, action.actionKey);
+        if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('操作执行失败')),
-          );
-        } else if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${action.actionName} 已执行')),
+            SnackBar(
+              content: Text(success ? '${action.actionName} 已执行' : '操作执行失败'),
+            ),
           );
         }
       },
-      child: Text(action.actionName),
+      child: FilledButton.tonal(
+        onPressed: () async {
+          final success = await sendActionCommand(ref, deviceId, action.actionKey);
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(success ? '${action.actionName} 已执行' : '操作执行失败'),
+              ),
+            );
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Text(action.actionName),
+        ),
+      ),
     );
   }
 }
@@ -775,11 +1190,11 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
     final start = now.subtract(range);
 
     ref.read(historyDataProvider.notifier).loadHistory(
-          deviceId: widget.deviceId,
-          startTime: start,
-          endTime: now,
-          interval: _selectedInterval,
-        );
+      deviceId: widget.deviceId,
+      startTime: start,
+      endTime: now,
+      interval: _selectedInterval,
+    );
   }
 
   @override
@@ -787,8 +1202,8 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
     final historyState = ref.watch(historyDataProvider);
     final configState = ref.watch(deviceConfigProvider);
     final sensors = configState.config?.enabledSensors ?? [];
+    final colorScheme = Theme.of(context).colorScheme;
 
-    // 如果有传感器配置且当前选择的字段不在列表中，选择第一个
     if (sensors.isNotEmpty &&
         !sensors.any((s) => s.fieldKey == _selectedField)) {
       _selectedField = sensors.first.fieldKey;
@@ -800,76 +1215,94 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
         padding: const EdgeInsets.all(16),
         children: [
           // 时间范围选择
-          _buildRangeSelector(),
+          FadeInWidget(
+            child: _buildRangeSelector(colorScheme),
+          ),
           const SizedBox(height: 12),
 
-          // 时间间隔选择
-          _buildIntervalSelector(),
-          const SizedBox(height: 12),
-
-          // 传感器字段选择
-          if (sensors.isNotEmpty) ...[
-            _buildFieldSelector(sensors),
-            const SizedBox(height: 16),
-          ],
+          // 时间间隔和传感器选择
+          FadeInWidget(
+            delay: const Duration(milliseconds: 50),
+            child: Row(
+              children: [
+                Expanded(child: _buildIntervalSelector(colorScheme)),
+                const SizedBox(width: 12),
+                if (sensors.isNotEmpty)
+                  Expanded(child: _buildFieldSelector(sensors, colorScheme)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
 
           // 图表
-          _buildChart(historyState, sensors),
+          FadeInWidget(
+            delay: const Duration(milliseconds: 100),
+            child: _buildChart(historyState, sensors, colorScheme),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildRangeSelector() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.date_range, size: 20),
-                const SizedBox(width: 8),
-                const Text('时间范围'),
+  Widget _buildRangeSelector(ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.date_range_rounded, size: 18, color: colorScheme.primary),
+              const SizedBox(width: 8),
+              const Text('时间范围', style: TextStyle(fontWeight: FontWeight.w500)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<String>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: '1h', label: Text('1h')),
+                ButtonSegment(value: '6h', label: Text('6h')),
+                ButtonSegment(value: '24h', label: Text('24h')),
+                ButtonSegment(value: '7d', label: Text('7d')),
               ],
+              selected: {_selectedRange},
+              onSelectionChanged: (selected) {
+                setState(() => _selectedRange = selected.first);
+                _loadData();
+              },
             ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: '1h', label: Text('1h')),
-                  ButtonSegment(value: '6h', label: Text('6h')),
-                  ButtonSegment(value: '24h', label: Text('24h')),
-                  ButtonSegment(value: '7d', label: Text('7d')),
-                ],
-                selected: {_selectedRange},
-                onSelectionChanged: (selected) {
-                  setState(() => _selectedRange = selected.first);
-                  _loadData();
-                },
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildIntervalSelector() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: [
-            const Icon(Icons.timer, size: 20),
-            const SizedBox(width: 8),
-            const Text('采样间隔'),
-            const Spacer(),
-            DropdownButton<String>(
+  Widget _buildIntervalSelector(ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.timer_outlined, size: 18, color: colorScheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: DropdownButton<String>(
               value: _selectedInterval,
               underline: const SizedBox(),
+              isDense: true,
+              isExpanded: true,
               items: _intervalLabels.entries.map((e) {
                 return DropdownMenuItem(value: e.key, child: Text(e.value));
               }).toList(),
@@ -880,29 +1313,34 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
                 }
               },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildFieldSelector(List<SensorConfig> sensors) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: [
-            const Icon(Icons.sensors, size: 20),
-            const SizedBox(width: 8),
-            const Text('数据类型'),
-            const Spacer(),
-            DropdownButton<String>(
+  Widget _buildFieldSelector(List<SensorConfig> sensors, ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.sensors_rounded, size: 18, color: colorScheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: DropdownButton<String>(
               value: _selectedField,
               underline: const SizedBox(),
+              isDense: true,
+              isExpanded: true,
               items: sensors.map((s) {
                 return DropdownMenuItem(
                   value: s.fieldKey,
-                  child: Text('${s.fieldName} (${s.unit})'),
+                  child: Text(s.fieldName, overflow: TextOverflow.ellipsis),
                 );
               }).toList(),
               onChanged: (value) {
@@ -911,60 +1349,62 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
                 }
               },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildChart(HistoryDataState state, List<SensorConfig> sensors) {
+  Widget _buildChart(HistoryDataState state, List<SensorConfig> sensors, ColorScheme colorScheme) {
     if (state.isLoading) {
-      return const SizedBox(
+      return Container(
         height: 300,
-        child: Center(child: CircularProgressIndicator()),
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+        ),
+        child: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (state.error != null) {
-      return SizedBox(
+      return Container(
         height: 300,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
-              const SizedBox(height: 8),
-              Text(state.error!, style: TextStyle(color: Colors.grey[600])),
-              const SizedBox(height: 16),
-              FilledButton.tonal(
-                onPressed: _loadData,
-                child: const Text('重试'),
-              ),
-            ],
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+        ),
+        child: EmptyStateWidget(
+          icon: Icons.error_outline_rounded,
+          title: '加载失败',
+          subtitle: state.error,
+          action: FilledButton.tonal(
+            onPressed: _loadData,
+            child: const Text('重试'),
           ),
         ),
       );
     }
 
     if (state.records.isEmpty) {
-      return SizedBox(
+      return Container(
         height: 300,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.show_chart, size: 48, color: Colors.grey[400]),
-              const SizedBox(height: 8),
-              Text('暂无历史数据', style: TextStyle(color: Colors.grey[600])),
-            ],
-          ),
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+        ),
+        child: const EmptyStateWidget(
+          icon: Icons.show_chart_rounded,
+          title: '暂无历史数据',
         ),
       );
     }
 
-    // 获取当前传感器配置
     final sensor = sensors.firstWhere(
-      (s) => s.fieldKey == _selectedField,
+          (s) => s.fieldKey == _selectedField,
       orElse: () => SensorConfig(
         fieldKey: _selectedField,
         fieldName: _selectedField,
@@ -972,7 +1412,6 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
       ),
     );
 
-    // 准备图表数据
     final spots = <FlSpot>[];
     double minY = double.infinity;
     double maxY = double.negativeInfinity;
@@ -988,15 +1427,19 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
     }
 
     if (spots.isEmpty) {
-      return SizedBox(
+      return Container(
         height: 300,
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+        ),
         child: Center(
-          child: Text('所选字段无数据', style: TextStyle(color: Colors.grey[600])),
+          child: Text('所选字段无数据', style: TextStyle(color: colorScheme.onSurfaceVariant)),
         ),
       );
     }
 
-    // 添加 Y 轴边距
     final yMargin = (maxY - minY) * 0.1;
     minY = minY - yMargin;
     maxY = maxY + yMargin;
@@ -1005,132 +1448,153 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
       maxY += 1;
     }
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(_getIconForField(_selectedField),
-                    color: _getColorForField(_selectedField)),
-                const SizedBox(width: 8),
-                Text(
-                  '${sensor.fieldName}变化趋势',
-                  style: Theme.of(context).textTheme.titleMedium,
+    final chartColor = AppColors.getSensorColor(_selectedField);
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: chartColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 250,
-              child: LineChart(
-                LineChartData(
-                  gridData: FlGridData(
-                    show: true,
-                    drawVerticalLine: false,
-                    horizontalInterval: (maxY - minY) / 4,
-                    getDrawingHorizontalLine: (value) {
-                      return FlLine(
-                        color: Colors.grey.withValues(alpha: 0.2),
-                        strokeWidth: 1,
-                      );
-                    },
-                  ),
-                  titlesData: FlTitlesData(
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 40,
-                        getTitlesWidget: (value, meta) {
-                          return Text(
-                            value.toStringAsFixed(0),
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 12,
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 30,
-                        interval: (state.records.length / 4).ceilToDouble(),
-                        getTitlesWidget: (value, meta) {
-                          final index = value.toInt();
-                          if (index < 0 || index >= state.records.length) {
-                            return const SizedBox();
-                          }
-                          final time = state.records[index].timestamp;
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              DateFormat('HH:mm').format(time),
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 10,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    topTitles:
-                        AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles:
-                        AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  minX: 0,
-                  maxX: (state.records.length - 1).toDouble(),
-                  minY: minY,
-                  maxY: maxY,
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: spots,
-                      isCurved: true,
-                      curveSmoothness: 0.3,
-                      color: _getColorForField(_selectedField),
-                      barWidth: 2,
-                      isStrokeCapRound: true,
-                      dotData: FlDotData(show: false),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        color: _getColorForField(_selectedField)
-                            .withValues(alpha: 0.1),
-                      ),
-                    ),
-                  ],
-                  lineTouchData: LineTouchData(
-                    touchTooltipData: LineTouchTooltipData(
-                      getTooltipItems: (touchedSpots) {
-                        return touchedSpots.map((spot) {
-                          final index = spot.x.toInt();
-                          final time = state.records[index].timestamp;
-                          return LineTooltipItem(
-                            '${DateFormat('MM/dd HH:mm').format(time)}\n${spot.y.toStringAsFixed(1)} ${sensor.unit}',
-                            const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          );
-                        }).toList();
+                child: Icon(
+                  _getIconForField(_selectedField),
+                  color: chartColor,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '${sensor.fieldName}变化趋势',
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            height: 220,
+            child: LineChart(
+              LineChartData(
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: (maxY - minY) / 4,
+                  getDrawingHorizontalLine: (value) {
+                    return FlLine(
+                      color: colorScheme.outline.withOpacity(0.15),
+                      strokeWidth: 1,
+                    );
+                  },
+                ),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 40,
+                      getTitlesWidget: (value, meta) {
+                        return Text(
+                          value.toStringAsFixed(0),
+                          style: TextStyle(
+                            color: colorScheme.onSurfaceVariant,
+                            fontSize: 11,
+                          ),
+                        );
                       },
                     ),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 28,
+                      interval: (state.records.length / 4).ceilToDouble(),
+                      getTitlesWidget: (value, meta) {
+                        final index = value.toInt();
+                        if (index < 0 || index >= state.records.length) {
+                          return const SizedBox();
+                        }
+                        final time = state.records[index].timestamp;
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            DateFormat('HH:mm').format(time),
+                            style: TextStyle(
+                              color: colorScheme.onSurfaceVariant,
+                              fontSize: 10,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                ),
+                borderData: FlBorderData(show: false),
+                minX: 0,
+                maxX: (state.records.length - 1).toDouble(),
+                minY: minY,
+                maxY: maxY,
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: spots,
+                    isCurved: true,
+                    curveSmoothness: 0.3,
+                    color: chartColor,
+                    barWidth: 2.5,
+                    isStrokeCapRound: true,
+                    dotData: const FlDotData(show: false),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          chartColor.withOpacity(0.2),
+                          chartColor.withOpacity(0.0),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+                lineTouchData: LineTouchData(
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipColor: (_) => colorScheme.inverseSurface,
+                    getTooltipItems: (touchedSpots) {
+                      return touchedSpots.map((spot) {
+                        final index = spot.x.toInt();
+                        final time = state.records[index].timestamp;
+                        return LineTooltipItem(
+                          '${DateFormat('MM/dd HH:mm').format(time)}\n${spot.y.toStringAsFixed(1)} ${sensor.unit}',
+                          TextStyle(
+                            color: colorScheme.onInverseSurface,
+                            fontWeight: FontWeight.w500,
+                            fontSize: 12,
+                          ),
+                        );
+                      }).toList();
+                    },
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              '共 ${state.records.length} 条数据',
-              style: TextStyle(color: Colors.grey[500], fontSize: 12),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '共 ${state.records.length} 条数据',
+            style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12),
+          ),
+        ],
       ),
     );
   }
@@ -1138,30 +1602,15 @@ class _HistoryViewState extends ConsumerState<HistoryView> {
   IconData _getIconForField(String field) {
     switch (field.toLowerCase()) {
       case 'temp':
-        return Icons.thermostat;
+        return Icons.thermostat_rounded;
       case 'humi':
-        return Icons.water_drop;
+        return Icons.water_drop_rounded;
       case 'soil':
-        return Icons.grass;
+        return Icons.grass_rounded;
       case 'light':
-        return Icons.light_mode;
+        return Icons.light_mode_rounded;
       default:
-        return Icons.sensors;
-    }
-  }
-
-  Color _getColorForField(String field) {
-    switch (field.toLowerCase()) {
-      case 'temp':
-        return Colors.orange;
-      case 'humi':
-        return Colors.blue;
-      case 'soil':
-        return Colors.brown;
-      case 'light':
-        return Colors.amber;
-      default:
-        return Colors.teal;
+        return Icons.sensors_rounded;
     }
   }
 }
@@ -1181,6 +1630,7 @@ class _ConfigViewState extends ConsumerState<ConfigView> {
   Widget build(BuildContext context) {
     final configState = ref.watch(deviceConfigProvider);
     final config = configState.config;
+    final colorScheme = Theme.of(context).colorScheme;
 
     if (configState.isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -1190,314 +1640,261 @@ class _ConfigViewState extends ConsumerState<ConfigView> {
       padding: const EdgeInsets.all(16),
       children: [
         // 传感器配置
-        _buildSectionHeader(context, '传感器配置', Icons.sensors,
-          onAdd: () => _showAddSensorDialog(context)),
-        const SizedBox(height: 8),
-        _buildSensorList(config?.sensors ?? []),
-
-        const SizedBox(height: 24),
-
-        // 控制配置 (开关类)
-        _buildSectionHeader(context, '开关控制', Icons.toggle_on,
-          onAdd: () => _showAddControlDialog(context)),
-        const SizedBox(height: 8),
-        _buildControlList(config?.controls ?? []),
-
-        const SizedBox(height: 24),
-
-        // 操作配置 (执行类)
-        _buildSectionHeader(context, '执行操作', Icons.touch_app,
-          onAdd: () => _showAddActionDialog(context)),
-        const SizedBox(height: 8),
-        _buildActionList(config?.actions ?? []),
-
-        const SizedBox(height: 24),
-
-        // 阈值配置 (待开发)
-        _buildSectionHeader(context, '阈值规则', Icons.rule),
-        const SizedBox(height: 8),
-        _buildComingSoonCard('阈值规则功能正在开发中'),
-      ],
-    );
-  }
-
-  Widget _buildSectionHeader(BuildContext context, String title, IconData icon, {VoidCallback? onAdd}) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+        FadeInWidget(
+          child: _buildConfigSection(
+            context,
+            title: '传感器配置',
+            icon: Icons.sensors_rounded,
+            onAdd: () => _showAddSensorDialog(context),
+            child: _buildSensorList(config?.sensors ?? [], colorScheme),
           ),
         ),
-        if (onAdd != null)
-          IconButton(
-            icon: const Icon(Icons.add_circle_outline),
-            onPressed: onAdd,
-            tooltip: '添加',
+        const SizedBox(height: 16),
+
+        // 控制配置
+        FadeInWidget(
+          delay: const Duration(milliseconds: 50),
+          child: _buildConfigSection(
+            context,
+            title: '开关控制',
+            icon: Icons.toggle_on_rounded,
+            onAdd: () => _showAddControlDialog(context),
+            child: _buildControlList(config?.controls ?? [], colorScheme),
           ),
+        ),
+        const SizedBox(height: 16),
+
+        // 操作配置
+        FadeInWidget(
+          delay: const Duration(milliseconds: 100),
+          child: _buildConfigSection(
+            context,
+            title: '执行操作',
+            icon: Icons.touch_app_rounded,
+            onAdd: () => _showAddActionDialog(context),
+            child: _buildActionList(config?.actions ?? [], colorScheme),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // 阈值配置
+        FadeInWidget(
+          delay: const Duration(milliseconds: 150),
+          child: _buildConfigSection(
+            context,
+            title: '阈值规则',
+            icon: Icons.rule_rounded,
+            child: _buildComingSoonCard(colorScheme),
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildComingSoonCard(String message) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: Column(
-            children: [
-              Icon(Icons.construction, size: 40, color: Colors.orange[400]),
-              const SizedBox(height: 8),
-              Text('待开发', style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Text(
-                message,
-                style: TextStyle(color: Colors.grey[500], fontSize: 12),
-              ),
-            ],
+  Widget _buildConfigSection(
+      BuildContext context, {
+        required String title,
+        required IconData icon,
+        VoidCallback? onAdd,
+        required Widget child,
+      }) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        border: Border.all(color: colorScheme.outline.withOpacity(0.2)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 8, 12),
+            child: Row(
+              children: [
+                Icon(icon, size: 20, color: colorScheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  ),
+                ),
+                if (onAdd != null)
+                  IconButton(
+                    icon: Icon(Icons.add_circle_outline_rounded, color: colorScheme.primary),
+                    onPressed: onAdd,
+                    tooltip: '添加',
+                  ),
+              ],
+            ),
           ),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildComingSoonCard(ColorScheme colorScheme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        ),
+        child: Column(
+          children: [
+            Icon(Icons.construction_rounded, size: 36, color: AppColors.warning),
+            const SizedBox(height: 8),
+            Text(
+              '开发中',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '阈值规则功能正在开发中',
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSurfaceVariant.withOpacity(0.7),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildThresholdList(List<ThresholdConfig> thresholds) {
-    if (thresholds.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: Column(
-              children: [
-                Icon(Icons.rule, size: 40, color: Colors.grey[400]),
-                const SizedBox(height: 8),
-                Text('暂无阈值规则', style: TextStyle(color: Colors.grey[600])),
-                const SizedBox(height: 4),
-                Text(
-                  '阈值规则可实现传感器数据触发自动控制',
-                  style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
+  Widget _buildSensorList(List<SensorConfig> sensors, ColorScheme colorScheme) {
+    if (sensors.isEmpty) {
+      return _buildEmptyList('暂无传感器配置', '添加传感器后可在仪表盘显示数据', colorScheme);
     }
 
     return Column(
-      children: thresholds.map((threshold) {
-        return _ThresholdCard(
-          threshold: threshold,
-          deviceId: widget.deviceId,
-          onDelete: () => _deleteThreshold(threshold.id!),
+      children: sensors.map((sensor) {
+        return _buildConfigItem(
+          icon: _getSensorIcon(sensor.icon),
+          iconColor: AppColors.getSensorColor(sensor.fieldKey),
+          title: sensor.fieldName,
+          subtitle: '键值: ${sensor.fieldKey}  单位: ${sensor.unit.isEmpty ? "无" : sensor.unit}',
+          onDelete: () => _deleteSensor(sensor.fieldKey),
+          colorScheme: colorScheme,
         );
       }).toList(),
     );
   }
 
-  Widget _buildAddThresholdButton(BuildContext context) {
-    return OutlinedButton.icon(
-      onPressed: () => _showAddThresholdDialog(context),
-      icon: const Icon(Icons.add),
-      label: const Text('添加阈值规则'),
-    );
-  }
-
-  Widget _buildSensorList(List<SensorConfig> sensors) {
-    if (sensors.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: Column(
-              children: [
-                Icon(Icons.sensors, size: 40, color: Colors.grey[400]),
-                const SizedBox(height: 8),
-                Text('暂无传感器配置', style: TextStyle(color: Colors.grey[600])),
-                const SizedBox(height: 4),
-                Text(
-                  '添加传感器后可在仪表盘显示数据',
-                  style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Card(
-      child: Column(
-        children: sensors.map((sensor) {
-          return ListTile(
-            leading: Icon(_getSensorIcon(sensor.icon)),
-            title: Text(sensor.fieldName),
-            subtitle: Text('键值: ${sensor.fieldKey}  单位: ${sensor.unit.isEmpty ? "无" : sensor.unit}'),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline, size: 20),
-              onPressed: () => _deleteSensor(sensor.fieldKey),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _buildControlList(List<ControlConfig> controls) {
+  Widget _buildControlList(List<ControlConfig> controls, ColorScheme colorScheme) {
     if (controls.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: Column(
-              children: [
-                Icon(Icons.toggle_on, size: 40, color: Colors.grey[400]),
-                const SizedBox(height: 8),
-                Text('暂无开关控制', style: TextStyle(color: Colors.grey[600])),
-                const SizedBox(height: 4),
-                Text(
-                  '开关控制用于控制设备的开/关状态',
-                  style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
+      return _buildEmptyList('暂无开关控制', '开关控制用于控制设备的开/关状态', colorScheme);
     }
 
-    return Card(
-      child: Column(
-        children: controls.map((control) {
-          return ListTile(
-            leading: Icon(_getControlIcon(control.icon)),
-            title: Text(control.controlName),
-            subtitle: Text('键值: ${control.controlKey}'),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline, size: 20),
-              onPressed: () => _deleteControl(control.controlKey),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _buildActionList(List<ActionConfig> actions) {
-    if (actions.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: Column(
-              children: [
-                Icon(Icons.touch_app, size: 40, color: Colors.grey[400]),
-                const SizedBox(height: 8),
-                Text('暂无执行操作', style: TextStyle(color: Colors.grey[600])),
-                const SizedBox(height: 4),
-                Text(
-                  '执行操作用于触发一次性动作',
-                  style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Card(
-      child: Column(
-        children: actions.map((action) {
-          return ListTile(
-            leading: const Icon(Icons.play_circle_outline),
-            title: Text(action.actionName),
-            subtitle: Text('键值: ${action.actionKey}'),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline, size: 20),
-              onPressed: () => _deleteAction(action.actionKey),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  void _showAddThresholdDialog(BuildContext context) {
-    final configState = ref.read(deviceConfigProvider);
-    final sensors = configState.config?.enabledSensors ?? [];
-    final controls = configState.config?.enabledControls ?? [];
-
-    if (sensors.isEmpty || controls.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('需要先配置传感器和控制项')),
-      );
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => _AddThresholdDialog(
-        deviceId: widget.deviceId,
-        sensors: sensors,
-        controls: controls,
-      ),
-    );
-  }
-
-  Future<void> _deleteThreshold(int thresholdId) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('删除阈值规则'),
-        content: const Text('确定要删除这条阈值规则吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      final success = await ref
-          .read(deviceConfigProvider.notifier)
-          .deleteThreshold(widget.deviceId, thresholdId);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(success ? '删除成功' : '删除失败')),
+    return Column(
+      children: controls.map((control) {
+        return _buildConfigItem(
+          icon: _getControlIcon(control.icon),
+          iconColor: colorScheme.primary,
+          title: control.controlName,
+          subtitle: '键值: ${control.controlKey}',
+          onDelete: () => _deleteControl(control.controlKey),
+          colorScheme: colorScheme,
         );
-      }
+      }).toList(),
+    );
+  }
+
+  Widget _buildActionList(List<ActionConfig> actions, ColorScheme colorScheme) {
+    if (actions.isEmpty) {
+      return _buildEmptyList('暂无执行操作', '执行操作用于触发一次性动作', colorScheme);
     }
+
+    return Column(
+      children: actions.map((action) {
+        return _buildConfigItem(
+          icon: Icons.play_circle_outline_rounded,
+          iconColor: AppColors.info,
+          title: action.actionName,
+          subtitle: '键值: ${action.actionKey}',
+          onDelete: () => _deleteAction(action.actionKey),
+          colorScheme: colorScheme,
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildEmptyList(String title, String subtitle, ColorScheme colorScheme) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        ),
+        child: Column(
+          children: [
+            Text(
+              title,
+              style: TextStyle(color: colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant.withOpacity(0.7)),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConfigItem({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required VoidCallback onDelete,
+    required ColorScheme colorScheme,
+  }) {
+    return ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: iconColor.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: iconColor, size: 20),
+      ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
+      subtitle: Text(subtitle, style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+      trailing: IconButton(
+        icon: Icon(Icons.delete_outline_rounded, size: 20, color: AppColors.error.withOpacity(0.7)),
+        onPressed: onDelete,
+      ),
+    );
   }
 
   IconData _getSensorIcon(String icon) {
     switch (icon.toLowerCase()) {
       case 'thermostat':
       case 'temp':
-        return Icons.thermostat;
+        return Icons.thermostat_rounded;
       case 'water_drop':
       case 'humi':
-        return Icons.water_drop;
+        return Icons.water_drop_rounded;
       case 'grass':
       case 'soil':
-        return Icons.grass;
+        return Icons.grass_rounded;
       case 'light_mode':
       case 'light':
-        return Icons.light_mode;
+        return Icons.light_mode_rounded;
       default:
-        return Icons.sensors;
+        return Icons.sensors_rounded;
     }
   }
 
@@ -1505,19 +1902,19 @@ class _ConfigViewState extends ConsumerState<ConfigView> {
     switch (icon.toLowerCase()) {
       case 'water':
       case 'water_drop':
-        return Icons.water_drop;
+        return Icons.water_drop_rounded;
       case 'fan':
       case 'air':
-        return Icons.air;
+        return Icons.air_rounded;
       case 'light':
       case 'lightbulb':
-        return Icons.lightbulb;
+        return Icons.lightbulb_rounded;
       default:
-        return Icons.power_settings_new;
+        return Icons.power_settings_new_rounded;
     }
   }
 
-  // ========== 添加对话框方法 ==========
+  // ===== 对话框方法 =====
 
   void _showAddSensorDialog(BuildContext context) {
     showDialog(
@@ -1540,7 +1937,7 @@ class _ConfigViewState extends ConsumerState<ConfigView> {
     );
   }
 
-  // ========== 删除方法 ==========
+  // ===== 删除方法 =====
 
   Future<void> _deleteSensor(String key) async {
     final confirmed = await _showDeleteConfirmDialog('传感器');
@@ -1585,6 +1982,7 @@ class _ConfigViewState extends ConsumerState<ConfigView> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
             child: const Text('删除'),
           ),
         ],
@@ -1601,269 +1999,7 @@ class _ConfigViewState extends ConsumerState<ConfigView> {
   }
 }
 
-/// 阈值卡片
-class _ThresholdCard extends StatelessWidget {
-  final ThresholdConfig threshold;
-  final String deviceId;
-  final VoidCallback onDelete;
-
-  const _ThresholdCard({
-    required this.threshold,
-    required this.deviceId,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Icon(Icons.rule),
-        ),
-        title: Text(
-          '${threshold.sensorKey} ${threshold.conditionDisplay} ${threshold.thresholdValue}',
-          style: const TextStyle(fontWeight: FontWeight.w500),
-        ),
-        subtitle: Text(
-          '触发 ${threshold.controlKey} ${threshold.triggerAction == "on" ? "开启" : "关闭"}',
-        ),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline),
-          onPressed: onDelete,
-        ),
-      ),
-    );
-  }
-}
-
-/// 添加阈值对话框
-class _AddThresholdDialog extends ConsumerStatefulWidget {
-  final String deviceId;
-  final List<SensorConfig> sensors;
-  final List<ControlConfig> controls;
-
-  const _AddThresholdDialog({
-    required this.deviceId,
-    required this.sensors,
-    required this.controls,
-  });
-
-  @override
-  ConsumerState<_AddThresholdDialog> createState() =>
-      _AddThresholdDialogState();
-}
-
-class _AddThresholdDialogState extends ConsumerState<_AddThresholdDialog> {
-  late String _selectedSensor;
-  late String _selectedControl;
-  String _selectedCondition = 'lt';
-  String _selectedAction = 'on';
-  final _valueController = TextEditingController();
-  bool _isLoading = false;
-
-  final Map<String, String> _conditionLabels = {
-    'gt': '大于 (>)',
-    'lt': '小于 (<)',
-    'gte': '大于等于 (>=)',
-    'lte': '小于等于 (<=)',
-    'eq': '等于 (=)',
-  };
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedSensor = widget.sensors.first.fieldKey;
-    _selectedControl = widget.controls.first.controlKey;
-  }
-
-  @override
-  void dispose() {
-    _valueController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('添加阈值规则'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 传感器选择
-            const Text('当传感器'),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: _selectedSensor,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
-              items: widget.sensors.map((s) {
-                return DropdownMenuItem(
-                  value: s.fieldKey,
-                  child: Text('${s.fieldName} (${s.fieldKey})'),
-                );
-              }).toList(),
-              onChanged: (value) {
-                if (value != null) setState(() => _selectedSensor = value);
-              },
-            ),
-
-            const SizedBox(height: 16),
-
-            // 条件选择
-            const Text('满足条件'),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value: _selectedCondition,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    items: _conditionLabels.entries.map((e) {
-                      return DropdownMenuItem(
-                        value: e.key,
-                        child: Text(e.value),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => _selectedCondition = value);
-                      }
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _valueController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      hintText: '阈值',
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            // 触发动作
-            const Text('触发动作'),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: _selectedControl,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
-              items: widget.controls.map((c) {
-                return DropdownMenuItem(
-                  value: c.controlKey,
-                  child: Text(c.controlName),
-                );
-              }).toList(),
-              onChanged: (value) {
-                if (value != null) setState(() => _selectedControl = value);
-              },
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'on', label: Text('开启')),
-                  ButtonSegment(value: 'off', label: Text('关闭')),
-                ],
-                selected: {_selectedAction},
-                onSelectionChanged: (selected) {
-                  setState(() => _selectedAction = selected.first);
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: _isLoading ? null : _submit,
-          child: _isLoading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('添加'),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _submit() async {
-    final valueText = _valueController.text.trim();
-    if (valueText.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入阈值')),
-      );
-      return;
-    }
-
-    final value = double.tryParse(valueText);
-    if (value == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入有效数字')),
-      );
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    final success = await ref.read(deviceConfigProvider.notifier).addThreshold(
-          deviceId: widget.deviceId,
-          sensorKey: _selectedSensor,
-          controlKey: _selectedControl,
-          condition: _selectedCondition,
-          value: value,
-          action: _selectedAction,
-        );
-
-    setState(() => _isLoading = false);
-
-    if (mounted) {
-      if (success) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('阈值规则添加成功')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('添加失败')),
-        );
-      }
-    }
-  }
-}
+// ===== 添加对话框 =====
 
 /// 添加传感器对话框
 class _AddSensorDialog extends ConsumerStatefulWidget {
@@ -1883,14 +2019,12 @@ class _AddSensorDialogState extends ConsumerState<_AddSensorDialog> {
   bool _isLoading = false;
 
   final List<Map<String, dynamic>> _iconOptions = [
-    {'value': 'sensors', 'icon': Icons.sensors, 'label': '通用'},
-    {'value': 'thermostat', 'icon': Icons.thermostat, 'label': '温度'},
-    {'value': 'water_drop', 'icon': Icons.water_drop, 'label': '湿度'},
-    {'value': 'grass', 'icon': Icons.grass, 'label': '土壤'},
-    {'value': 'light_mode', 'icon': Icons.light_mode, 'label': '光照'},
-    {'value': 'air', 'icon': Icons.air, 'label': '气体'},
-    {'value': 'speed', 'icon': Icons.speed, 'label': '速度'},
-    {'value': 'bolt', 'icon': Icons.bolt, 'label': '电量'},
+    {'value': 'sensors', 'icon': Icons.sensors_rounded, 'label': '通用'},
+    {'value': 'thermostat', 'icon': Icons.thermostat_rounded, 'label': '温度'},
+    {'value': 'water_drop', 'icon': Icons.water_drop_rounded, 'label': '湿度'},
+    {'value': 'grass', 'icon': Icons.grass_rounded, 'label': '土壤'},
+    {'value': 'light_mode', 'icon': Icons.light_mode_rounded, 'label': '光照'},
+    {'value': 'air', 'icon': Icons.air_rounded, 'label': '气体'},
   ];
 
   @override
@@ -1903,6 +2037,8 @@ class _AddSensorDialogState extends ConsumerState<_AddSensorDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return AlertDialog(
       title: const Text('添加传感器'),
       content: SingleChildScrollView(
@@ -1910,40 +2046,28 @@ class _AddSensorDialogState extends ConsumerState<_AddSensorDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('键值 (用于匹配开发板数据)', style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(height: 4),
+            Text('键值', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 6),
             TextField(
               controller: _keyController,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: '如: gas, pressure',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
+              decoration: const InputDecoration(hintText: '如: gas, pressure'),
             ),
             const SizedBox(height: 16),
-            const Text('显示名称'),
-            const SizedBox(height: 4),
+            Text('显示名称', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 6),
             TextField(
               controller: _nameController,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: '如: 气体浓度',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
+              decoration: const InputDecoration(hintText: '如: 气体浓度'),
             ),
             const SizedBox(height: 16),
-            const Text('单位 (可选)'),
-            const SizedBox(height: 4),
+            Text('单位', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 6),
             TextField(
               controller: _unitController,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: '如: %, ppm, °C',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
+              decoration: const InputDecoration(hintText: '如: %, ppm, °C'),
             ),
             const SizedBox(height: 16),
-            const Text('图标'),
+            Text('图标', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -1954,16 +2078,14 @@ class _AddSensorDialogState extends ConsumerState<_AddSensorDialog> {
                   label: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(opt['icon'] as IconData, size: 18),
+                      Icon(opt['icon'] as IconData, size: 16),
                       const SizedBox(width: 4),
-                      Text(opt['label'] as String),
+                      Text(opt['label'] as String, style: const TextStyle(fontSize: 12)),
                     ],
                   ),
                   selected: isSelected,
                   onSelected: (selected) {
-                    if (selected) {
-                      setState(() => _selectedIcon = opt['value'] as String);
-                    }
+                    if (selected) setState(() => _selectedIcon = opt['value'] as String);
                   },
                 );
               }).toList(),
@@ -1990,31 +2112,29 @@ class _AddSensorDialogState extends ConsumerState<_AddSensorDialog> {
     final key = _keyController.text.trim();
     final name = _nameController.text.trim();
 
-    if (key.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入键值')));
-      return;
-    }
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入显示名称')));
+    if (key.isEmpty || name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请填写必填项')),
+      );
       return;
     }
 
     setState(() => _isLoading = true);
 
     final success = await ref.read(deviceConfigProvider.notifier).addSensor(
-          deviceId: widget.deviceId,
-          key: key,
-          name: name,
-          unit: _unitController.text.trim(),
-          icon: _selectedIcon,
-        );
+      deviceId: widget.deviceId,
+      key: key,
+      name: name,
+      unit: _unitController.text.trim(),
+      icon: _selectedIcon,
+    );
 
     setState(() => _isLoading = false);
 
     if (mounted) {
       if (success) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('传感器添加成功')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('添加成功')));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('添加失败')));
       }
@@ -2022,7 +2142,7 @@ class _AddSensorDialogState extends ConsumerState<_AddSensorDialog> {
   }
 }
 
-/// 添加开关控制对话框
+/// 添加控制对话框
 class _AddControlDialog extends ConsumerStatefulWidget {
   final String deviceId;
 
@@ -2039,14 +2159,12 @@ class _AddControlDialogState extends ConsumerState<_AddControlDialog> {
   bool _isLoading = false;
 
   final List<Map<String, dynamic>> _iconOptions = [
-    {'value': 'power_settings_new', 'icon': Icons.power_settings_new, 'label': '开关'},
-    {'value': 'water_drop', 'icon': Icons.water_drop, 'label': '水泵'},
-    {'value': 'air', 'icon': Icons.air, 'label': '风扇'},
-    {'value': 'lightbulb', 'icon': Icons.lightbulb, 'label': '灯光'},
-    {'value': 'bluetooth', 'icon': Icons.bluetooth, 'label': '蓝牙'},
-    {'value': 'wifi', 'icon': Icons.wifi, 'label': 'WiFi'},
-    {'value': 'whatshot', 'icon': Icons.whatshot, 'label': '加热'},
-    {'value': 'ac_unit', 'icon': Icons.ac_unit, 'label': '制冷'},
+    {'value': 'power_settings_new', 'icon': Icons.power_settings_new_rounded, 'label': '开关'},
+    {'value': 'water_drop', 'icon': Icons.water_drop_rounded, 'label': '水泵'},
+    {'value': 'air', 'icon': Icons.air_rounded, 'label': '风扇'},
+    {'value': 'lightbulb', 'icon': Icons.lightbulb_rounded, 'label': '灯光'},
+    {'value': 'whatshot', 'icon': Icons.whatshot_rounded, 'label': '加热'},
+    {'value': 'ac_unit', 'icon': Icons.ac_unit_rounded, 'label': '制冷'},
   ];
 
   @override
@@ -2058,6 +2176,8 @@ class _AddControlDialogState extends ConsumerState<_AddControlDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return AlertDialog(
       title: const Text('添加开关控制'),
       content: SingleChildScrollView(
@@ -2065,29 +2185,21 @@ class _AddControlDialogState extends ConsumerState<_AddControlDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('键值 (发送给开发板的标识)', style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(height: 4),
+            Text('键值', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 6),
             TextField(
               controller: _keyController,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: '如: bluetooth, heater',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
+              decoration: const InputDecoration(hintText: '如: heater, pump'),
             ),
             const SizedBox(height: 16),
-            const Text('显示名称'),
-            const SizedBox(height: 4),
+            Text('显示名称', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 6),
             TextField(
               controller: _nameController,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: '如: 蓝牙开关',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
+              decoration: const InputDecoration(hintText: '如: 加热器'),
             ),
             const SizedBox(height: 16),
-            const Text('图标'),
+            Text('图标', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -2098,39 +2210,17 @@ class _AddControlDialogState extends ConsumerState<_AddControlDialog> {
                   label: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(opt['icon'] as IconData, size: 18),
+                      Icon(opt['icon'] as IconData, size: 16),
                       const SizedBox(width: 4),
-                      Text(opt['label'] as String),
+                      Text(opt['label'] as String, style: const TextStyle(fontSize: 12)),
                     ],
                   ),
                   selected: isSelected,
                   onSelected: (selected) {
-                    if (selected) {
-                      setState(() => _selectedIcon = opt['value'] as String);
-                    }
+                    if (selected) setState(() => _selectedIcon = opt['value'] as String);
                   },
                 );
               }).toList(),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, size: 18, color: Colors.blue[700]),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '开关控制会发送 on/off 状态给开发板，请在开发板代码中处理该键值',
-                      style: TextStyle(fontSize: 12, color: Colors.blue[700]),
-                    ),
-                  ),
-                ],
-              ),
             ),
           ],
         ),
@@ -2154,32 +2244,30 @@ class _AddControlDialogState extends ConsumerState<_AddControlDialog> {
     final key = _keyController.text.trim();
     final name = _nameController.text.trim();
 
-    if (key.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入键值')));
-      return;
-    }
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入显示名称')));
+    if (key.isEmpty || name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请填写必填项')),
+      );
       return;
     }
 
     setState(() => _isLoading = true);
 
     final success = await ref.read(deviceConfigProvider.notifier).addControl(
-          deviceId: widget.deviceId,
-          key: key,
-          name: name,
-          cmdOn: '${key}_on',
-          cmdOff: '${key}_off',
-          icon: _selectedIcon,
-        );
+      deviceId: widget.deviceId,
+      key: key,
+      name: name,
+      cmdOn: '${key}_on',
+      cmdOff: '${key}_off',
+      icon: _selectedIcon,
+    );
 
     setState(() => _isLoading = false);
 
     if (mounted) {
       if (success) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('开关控制添加成功')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('添加成功')));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('添加失败')));
       }
@@ -2187,7 +2275,7 @@ class _AddControlDialogState extends ConsumerState<_AddControlDialog> {
   }
 }
 
-/// 添加执行操作对话框
+/// 添加操作对话框
 class _AddActionDialog extends ConsumerStatefulWidget {
   final String deviceId;
 
@@ -2211,6 +2299,8 @@ class _AddActionDialogState extends ConsumerState<_AddActionDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return AlertDialog(
       title: const Text('添加执行操作'),
       content: SingleChildScrollView(
@@ -2218,42 +2308,34 @@ class _AddActionDialogState extends ConsumerState<_AddActionDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('键值 (发送给开发板的标识)', style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(height: 4),
+            Text('键值', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 6),
             TextField(
               controller: _keyController,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: '如: calibrate, reset',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
+              decoration: const InputDecoration(hintText: '如: calibrate, reset'),
             ),
             const SizedBox(height: 16),
-            const Text('显示名称'),
-            const SizedBox(height: 4),
+            Text('显示名称', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 6),
             TextField(
               controller: _nameController,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: '如: 传感器校准',
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
+              decoration: const InputDecoration(hintText: '如: 传感器校准'),
             ),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
+                color: AppColors.info.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(AppTheme.radiusSm),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, size: 18, color: Colors.orange[700]),
+                  Icon(Icons.info_outline_rounded, size: 18, color: AppColors.info),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       '执行操作是一次性触发，点击后会发送该键值给开发板',
-                      style: TextStyle(fontSize: 12, color: Colors.orange[700]),
+                      style: TextStyle(fontSize: 12, color: AppColors.info),
                     ),
                   ),
                 ],
@@ -2281,29 +2363,27 @@ class _AddActionDialogState extends ConsumerState<_AddActionDialog> {
     final key = _keyController.text.trim();
     final name = _nameController.text.trim();
 
-    if (key.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入键值')));
-      return;
-    }
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请输入显示名称')));
+    if (key.isEmpty || name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请填写必填项')),
+      );
       return;
     }
 
     setState(() => _isLoading = true);
 
     final success = await ref.read(deviceConfigProvider.notifier).addAction(
-          deviceId: widget.deviceId,
-          key: key,
-          name: name,
-        );
+      deviceId: widget.deviceId,
+      key: key,
+      name: name,
+    );
 
     setState(() => _isLoading = false);
 
     if (mounted) {
       if (success) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('执行操作添加成功')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('添加成功')));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('添加失败')));
       }
