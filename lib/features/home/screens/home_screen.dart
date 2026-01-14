@@ -29,9 +29,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-    // 加载设备列表
-    Future.microtask(() {
-      ref.read(devicesProvider.notifier).loadDevices();
+    // 加载设备列表，完成后自动加载配置
+    Future.microtask(() async {
+      await ref.read(devicesProvider.notifier).loadDevices();
+      // 设备列表加载完成后，自动加载选中设备的配置
+      final selectedDevice = ref.read(selectedDeviceProvider);
+      final deviceId = selectedDevice?.deviceId;
+      if (deviceId != null && deviceId.isNotEmpty) {
+        ref.read(deviceConfigProvider.notifier).loadConfig(deviceId);
+      }
     });
   }
 
